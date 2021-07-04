@@ -1,28 +1,45 @@
-# -*- coding: utf-8 -*-
 """
 Created on Thu Aug 30 10:28:53 2018
 @author: Ashley Lyons, School of Physics and Astronomy, Univeristy of Glasgow, ashley.lyons@glasgow.ac.uk
 
 Functions
 """
-from matplotlib import  pyplot as plt
 
 # Point Spread Function from propagation through slab of diffuse medium - Eq.2 in paper
+def _PSF_eq(r_sq,t):
+    return c/((4*math.pi*D*c*t)**1.5) * \
+            np.exp(-r_sq/(4*D*c*t)) * np.exp(-mu_a*c*t)
+
 def point_spread_function(propagation_length):
+    # Vectorized PSF computation in the NxN grid at cross-section z=propagation_length
+    im1 = np.tile(np.square(x),[FoV_n_bins,1])
+    im2 = np.transpose(np.tile(np.square(y),[FoV_n_bins,1]))
+    im = im1 + im2
+    r_sq = im + np.square(propagation_length)
     PSF = np.zeros(a)
-    for tt in range(t_n_bins):
-        t = (tt+1)*t_res    # time at each step (ps, arbitrary start)
-        # calculate matrix of x^2 + y^2 values - avoids for loop in spatial dimensions
-        im1 = np.tile(np.square(x),[FoV_n_bins,1])
-        im2 = np.transpose(np.tile(np.square(y),[FoV_n_bins,1]))
-        im = im1 + im2
-        # Eq.2 in paper
-        PSF[xypad:(xypad+FoV_n_bins),xypad:(xypad+FoV_n_bins),tt] = c/((4*math.pi*D*c*t)**1.5) * np.exp(-(im + np.square(propagation_length))/(4*D*c*t)) * np.exp(-mu_a*c*t)
-        plt.plot(PSF[16,16,:])
+
+    t_bins = t_res*(np.arange(t_n_bins)+1)
+    PSFaux = np.zeros([FoV_n_bins,FoV_n_bins, t_n_bins]) + r_sq[:,:,None]
+    vPSFeq = np.vectorize(_PSF_eq)
+    PSFaux = vPSFeq(PSFaux, t_bins)
+
+    PSF[xypad:(xypad+FoV_n_bins),xypad:(xypad+FoV_n_bins),:]= PSFaux
+
+    """
+    plt.figure()
+    plt.plot(PSF[16,16,:])
+    plt.xlabel("Time (bins)")
+    plt.ylabel("Value of PSF (Phi)")
+    plt.show()
+    """
     return PSF
 
 # Convolution with PSF via FFT    
 def diff_conv(Phi_in,PSF):
+    ## ALLAN: Question - What does it mean to convolve PSF and Phi? 
+    ## I think it may mean that it's the way to propagate the input beam??
+    ## since convolution is just the integration of the product as one 
+    ## function moves from left to right.
     Phi = np.real((np.fft.ifftn(np.multiply(np.fft.fftn(Phi_in),np.fft.fftn(PSF)))))
     Phi = np.divide(Phi,np.amax(Phi))   # normalise
     return Phi
@@ -32,6 +49,7 @@ def forward_model(b_input,mask):
     # calculate propagation through first slab
     PSF1 = point_spread_function(propagation_length1)
     PSF1[PSF1<700000] = 0 # FRANCESCO: Thresholding to avoid square windowing. Should really compute the PSF over a larger area instead.
+    print(PSF1.shape)
     Phi = diff_conv(b_input,PSF1)
     Phi = np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
 
@@ -41,6 +59,8 @@ def forward_model(b_input,mask):
 
     # only recalculate PSF for second slab if needed
     Phi_m = Phi+0 # FRANCESCO: Just an extra output to visualise the field in the middle
+    ## ALLAN: Question - PL1 and PL2 are just lenghts, not coordinates. If they have
+    ## the same value, it doesn't imply that the second slab should have "0 length".
     if propagation_length2 == propagation_length1:
         Phi = diff_conv(Phi,PSF1)
         Phi = np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
@@ -52,7 +72,9 @@ def forward_model(b_input,mask):
     # Crop data only if padded with 0s
     if xypadding != FoV_n_bins:
 
-        Phi = Phi[np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,:]
+        Phi = Phi[
+            np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,
+            np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,:]
 #        Phi_m = Phi_m[np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,:]
 
     return Phi, Phi_m # FRANCESCO: Extra output - field in the middle
@@ -93,7 +115,10 @@ a = [xypadding,xypadding,t_n_bins]
 b_input = np.zeros(a)
 for xx in range(FoV_n_bins):
     for yy in range(FoV_n_bins):
-        b_input[xx+xypad,yy+xypad,pulse_start_bin] = np.multiply(math.exp(-np.square((x[xx]-input_center[0]))/input_width**2),math.exp(-np.square((y[yy]-input_center[1]))/input_width**2))
+        b_input[xx+xypad,yy+xypad,pulse_start_bin] = \
+            np.multiply(
+                math.exp(-np.square( (x[xx]-input_center[0]) )/input_width**2 ),
+                math.exp(-np.square((y[yy]-input_center[1]))/input_width**2))
 
 """
 Test parameters
@@ -122,4 +147,4 @@ plt.title("Middle Surface")
 plt.subplot(1, 3, 3)
 plt.imshow(np.sum(test,2),interpolation='none')
 plt.title("End Surface")
-
+plt.show()
