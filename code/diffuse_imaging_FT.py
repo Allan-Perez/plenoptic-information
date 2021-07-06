@@ -2,177 +2,215 @@
 Created on Thu Aug 30 10:28:53 2018
 @author: Ashley Lyons, School of Physics and Astronomy, Univeristy of Glasgow, ashley.lyons@glasgow.ac.uk
 
-Functions
+Modified on Tue Jul 6 13:30 2021
+@author: Allan Perez, School of Physics and Astronomy, University of Glasgow,
+2480326p@student.gla.ac.uk
+The modification consists of a refactoring into OOP for easy multiparam simulations, and
+avoid having global variables or having to pass params around functions.
 """
-probe_coord = (16,16)
+class DiffusionSim():
+    """Diffusion simulator. Takes in the needed physical and grid parameters,
+       and computes the diffusion approx according the point spread function (PSF) found
+       in the paper. The simulation consists of a grid NxNxT where N is the number of
+       spatial bins used to measure, in our case the SPAD camera, and T is the number of
+       temporal A bins.
 
-# Point Spread Function from propagation through slab of diffuse medium - Eq.2 in paper
-def _PSF_eq(r_sq,t):
-    return c/((4*math.pi*D*c*t)**1.5) * \
-            np.exp(-r_sq/(4*D*c*t)) * np.exp(-mu_a*c*t)
-
-def point_spread_function(propagation_length):
-    # Vectorized PSF computation in the NxN grid at cross-section z=propagation_length
-    im1 = np.tile(np.square(x),[FoV_n_bins,1])
-    im2 = np.transpose(np.tile(np.square(y),[FoV_n_bins,1]))
-    im = im1 + im2
-    r_sq = im + np.square(propagation_length)
-    PSF = np.zeros(a)
-
-    t_bins = t_res*(np.arange(t_n_bins)+1)
-    PSFaux = np.zeros([FoV_n_bins,FoV_n_bins, t_n_bins]) + r_sq[:,:,None]
-    vPSFeq = np.vectorize(_PSF_eq)
-    PSFaux = vPSFeq(PSFaux, t_bins)
-
-    PSF[xypad:(xypad+FoV_n_bins),xypad:(xypad+FoV_n_bins),:]= PSFaux
-
-    return PSF
-
-# Convolution with PSF via FFT    
-def diff_conv(Phi_in,PSF):
-    ## ALLAN: Question - What does it mean to convolve PSF and Phi? 
-    ## I think it may mean that it's the way to propagate the input beam??
-    ## since convolution is just the integration of the product as one 
-    ## function moves from left to right.
-    print(Phi_in.shape, PSF.shape)
-
-
-    Phi = np.real((np.fft.ifftn(np.multiply(np.fft.fftn(Phi_in),np.fft.fftn(PSF)))))
-    Phi = np.divide(Phi,np.amax(Phi))   # normalise
-
+       The PSF is the solution to the impulse input (delta function), i.e. a green's
+       functions, and the solution to an arbitrary input shape is the convolution between
+       the PSF and that arbitrary input shape. (See Green's Function in wikipedia for more
+       details.
     """
-    plt.subplot(1, 3, 1)
-    plt.plot(Phi_in[probe_coord],label="Input beam")
-    plt.xlabel('Time bins')
-    plt.ylabel('Value of Phi of input impulse')
-    plt.legend()
-    plt.subplot(1, 3, 2)
-    plt.plot(PSF[probe_coord],label="PSF")
-    plt.xlabel('Time bins')
-    plt.ylabel('Value of PSF(??)')
-    plt.legend()
-    plt.subplot(1, 3, 3)
-    plt.plot(Phi[probe_coord],label="Phi Convolved input impulse into PSF")
-    plt.xlabel('Time bins')
-    plt.ylabel('Convolved PSF with input')
-    plt.legend()
-    plt.show()
-    """
+    def __init__(self, **kwargs):
+        # Grid Params
+        self.tBinsN = kwargs["timeNumBins"]
+        self.FoVNumBins = kwargs["fieldOfViewBins"]
+        self.xCoordSpace = kwargs["xCoordSpace"]
+        self.yCoordSpace = kwargs["yCoordSpace"]
+        self.padSize = kwargs["padSize"]
+        self.xyPadding = 2*self.padSize+self.FoVNumBins
 
-    return Phi
+        # Grid Auxiliar
+        self.FoVGridDims = [self.FoVNumBins,self.FoVNumBins, self.tBinsN]
+        self.paddedGridDims = [self.xyPadding,self.xyPadding,self.tBinsN]
 
-# Full forward model including propagation through both slabs and object masking
-def forward_model(b_input,mask):
-    # calculate propagation through first slab
-    PSF1 = point_spread_function(propagation_length1)
+        # Physics Params
+        self.c = kwargs["c"] # Phase velocity in medium (cm/s)
+        self.D = kwargs["D"] # Diffusion coefficient
+        self.mu_a = kwargs["mu_a"] # Absorption coefficient
+        self.timeRes = kwargs["timeResolution"]
 
-    Phi = diff_conv(b_input,PSF1)
-    Phi = np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
 
-    # hidden object masking
-    for tt in range(t_n_bins):
-        Phi[:,:,tt] = np.multiply(Phi[:,:,tt],mask)
+    def _PSF_eq(self, r_sq, t):
+        """Point Spread Function from propagation through slab of
+           diffuse medium - Eq.2 in paper
+        """
+        return self.c/((4*np.pi*self.D*self.c*t)**1.5) * \
+                np.exp(-r_sq/(4*self.D*self.c*t)) * np.exp(-self.mu_a*self.c*t)
 
-    # only recalculate PSF for second slab if needed
-    Phi_m = Phi+0 # FRANCESCO: Just an extra output to visualise the field in the middle
-    ## ALLAN: Question - PL1 and PL2 are just lenghts, not coordinates. If they have
-    ## the same value, it doesn't imply that the second slab should have "0 length".
-    if propagation_length2 == propagation_length1:
-        Phi = diff_conv(Phi,PSF1)
-        Phi = np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
-    else:
-        PSF2 = point_spread_function(propagation_length2)
-        Phi = diff_conv(Phi,PSF2)
-        Phi = np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
+    def PSF (self, propagation_length):
+        """ Vectorized PSF computation in the NxNxT grid at
+            cross-section z=propagation_length.
+        """
+        im1 = np.tile(np.square(self.xCoordSpace),[self.FoVNumBins,1])
+        im2 = np.transpose(np.tile(np.square(self.yCoordSpace),[self.FoVNumBins,1]))
+        im = im1 + im2
+        r_sq = im + np.square(propagation_length)
 
-    # Crop data only if padded with 0s
-    if xypadding != FoV_n_bins:
+        # Vectorize Eq.2 PSF, and broadcast along all t_bins,
+        # to generate the R^NxNxT matrix/tensor representing PSF
+        PSF = np.zeros(self.paddedGridDims)
+        tBins = self.timeRes*(np.arange(self.tBinsN)+1)
+        PSFaux = np.zeros(self.FoVGridDims) + r_sq[:,:,None]
+        vPSFeq = np.vectorize(self._PSF_eq) # Careful - self!
+        PSFaux = vPSFeq(PSFaux, tBins)
 
-        Phi = Phi[
-            np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,
-            np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,:]
-#        Phi_m = Phi_m[np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,np.int(xypadding/2-FoV_n_bins/2)-1:np.int(xypadding/2+FoV_n_bins/2)-1,:]
+        # PSF with padding
+        xyIni, xyEnd = (self.padSize, self.padSize+self.FoVNumBins)
+        PSF[xyIni:xyEnd,xyIni:xyEnd,:]= PSFaux
 
-    return Phi, Phi_m # FRANCESCO: Extra output - field in the middle
+        return PSF
 
+    def convolution(self, Phi_in, PSF):
+        """Green's Function theorem for solving inhomogeneous
+        boundary value problems. Convolution via FFT."""
+
+        Phi = np.real((np.fft.ifftn(
+            np.multiply(np.fft.fftn(Phi_in),np.fft.fftn(PSF))
+        )))
+        Phi = np.divide(Phi,np.amax(Phi))   # normalise
+
+        return np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
+
+    def forward_model(self, beamInput, mask, propagationLen1, propagationLen2):
+        """Full forward model including propagation through
+        both slabs and object masking.
+        """
+        # Calculate propagation through first slab
+        PSF1 = self.PSF(propagationLen1)
+        Phi = self.convolution(beamInput, PSF1)
+
+        # Hidden object masking - across the whole time axis (broadcasting)
+        Phi *= mask[:,:,None]
+
+        # Recalculate PSF for second slab if needed. 
+        # Store middle cross-section
+        Phi_m = Phi.copy()
+        if propagationLen1 == propagationLen2 :
+            Phi = self.convolution(Phi,PSF1)
+        else:
+            PSF2 = self.PSF(propagation_length2)
+            Phi = self.convolution(Phi,PSF2)
+
+        # Crop data only if padded with 0s
+        if self.padSize!=0:
+            Phi = Phi[
+                self.padSize-1:self.padSize+self.FoVNumBins-1,
+                self.padSize-1:self.padSize+self.FoVNumBins-1,:]
+
+        return Phi, Phi_m # FRANCESCO: Extra output - field in the middle
+
+class BeamGenerator():
+    def __init__(self, **kwargs):
+        self.dists = {
+            "gaussian": lambda x,mu,sig: np.exp(-np.square( (x-mu) /sig ) )
+        }
+        self.FoVNumBins = kwargs["fieldOfViewBins"]
+        self.padSize = kwargs["padSize"]
+        self.xCoordSpace = kwargs["xCoordSpace"]
+        self.yCoordSpace = kwargs["yCoordSpace"]
+        self.tBinsN = kwargs["timeNumBins"]
+        self.xyPadding = 2*self.padSize+self.FoVNumBins
+        # Grid Auxiliar
+        self.FoVGridDims = [self.FoVNumBins,self.FoVNumBins, self.tBinsN]
+        self.paddedGridDims = [self.xyPadding,self.xyPadding,self.tBinsN]
+
+    # Compute the input beam shape with meshgrid
+    def intensity_distribution(self, inputCenter, inputWidth, pulseStartBin, visual=False):
+        beamInput=np.zeros(self.paddedGridDims)
+        dist = self.dists["gaussian"]
+
+        X_, Y_ = np.meshgrid(self.xCoordSpace,self.yCoordSpace)
+        intensityShape = \
+            dist(X_,inputCenter[0], inputWidth)*\
+            dist(Y_,inputCenter[1], inputWidth)
+        xyIni, xyEnd = (self.padSize,self.FoVNumBins+self.padSize)
+        beamInput[xyIni:xyEnd,xyIni:xyEnd,pulseStartBin] = intensityShape
+
+        if visual:
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(X_,Y_,intensityShape, linewidth=0, antialiased=False)
+            ax.set_xlabel("X (cm)")
+            ax.set_ylabel("Y (cm)")
+            ax.set_zlabel("Beam Intensity")
+            plt.show()
+
+        return beamInput
 """
 Initial parameters
 """
-import numpy as np, matplotlib.pyplot as plt, math, time
+if __name__=="__main__":
+    import numpy as np, matplotlib.pyplot as plt, time
+    n = 1.44                   # refractive index of diffuse medium
+    xypadding = 64 # Pixel count after 0 padding for the FFTs - avoids wrapping
+    params={
+        "c" : 3e10/n,             # phase velocity in medium (cm/s)
+        "propagationLen1" : 2.5,  # thickness of first diffuse medium (cm)
+        "propagationLen2" : 2.5,  # thickness of second diffuse medium (cm)
+        "mu_a" : 0.09,     # absorption coefficient (cm^-1)
+        "mu_s" : 16.5,     # scattering coefficient (cm^-1)
+        "FoV_length" : 4.4,           # size of the camera field of view (cm)
+        "timeResolution" : 55e-12,    # camera temporal bin width (ps)
+        "timeNumBins" : 251,          # number of temporal bins
+        "fieldOfViewBins" : 32,       # number of camera pixels
+    }
+    params["D"] = (3*(params["mu_a"]+params["mu_s"]))**(-1) # "D" as defined in paper
 
-n = 1.44                   # refractive index of diffuse medium
-propagation_length1 = 2.5  # thickness of first diffuse medium (cm)
-propagation_length2 = 2.5  # thickness of second diffuse medium (cm)
+    # array of positionsin FoV (cm)
+    _ = np.linspace(-params["FoV_length"]/2,params["FoV_length"]/2,params["fieldOfViewBins"])
+    params["xCoordSpace"] = _
+    params["yCoordSpace"] = _
+    params["padSize"]= int((xypadding - params["fieldOfViewBins"])/2)
 
-mu_a = 0.09     # absorption coefficient (cm^-1)
-mu_s = 16.5     # scattering coefficient (cm^-1)
-c = 3e10/n      # phase velocity in medium (cm/s)
+    diffSim = DiffusionSim(**params)
 
-FoV_length = 4.4     # size of the camera field of view (cm)
-t_res = 55e-12       # camera temporal bin width (ps)
-t_n_bins = 251       # number of temporal bins
-FoV_n_bins = 32      # number of camera pixels
+    """
+    Input intensity distribution - Gaussian
+    """
+    bGen = BeamGenerator(**params)
 
-x = np.linspace(-FoV_length/2,FoV_length/2,FoV_n_bins)       # array of positionsin FoV (cm)
-y = np.linspace(-FoV_length/2,FoV_length/2,FoV_n_bins)       # array of positionsin FoV (cm)
+    input_center = [0,0]        # beam center position (cm)
+    input_width = 0.5           # beam width (cm, s.d.)
+    pulse_start_bin = 9         # starting bin for the input pulse
+    #beamInput  = bGen.intensity_distribution([-1,0], input_width, 9, True)
+    #beamInput2 = bGen.intensity_distribution([1,0],  input_width, 9, True)
+    #beamInput += beamInput2
+    beamInput = bGen.intensity_distribution(input_center,input_width, 9,True)
 
-D = (3*(mu_a+mu_s))**(-1)            # "D" as defined in paper
+    """
+    Test parameters
+    """
+    # load test mask
+    mask = np.genfromtxt('test_masks/tri.txt')
+    mask = np.divide(mask,255)
+    mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
 
-xypadding = 64                  # Pixel count after 0 padding for the FFTs - avoids wrapping
-xypad = int((xypadding - FoV_n_bins)/2)
+    # function profiling
+    ts = time.time()
+    pl1 = params["propagationLen1"]
+    pl2 = params["propagationLen2"]
+    test, test_m = diffSim.forward_model(beamInput,mask,pl1,pl2)
+    tf = time.time()
+    print(tf-ts)
 
-"""
-Input intensity distribution - Gaussian
-"""
-input_center = [0,0]        # beam center position (cm)
-input_width = 5           # beam width (cm, s.d.)
-pulse_start_bin = 9         # starting bin for the input pulse
-a = [xypadding,xypadding,t_n_bins]
-b_input = np.zeros(a)
-for xx in range(FoV_n_bins):
-    for yy in range(FoV_n_bins):
-        b_input[xx+xypad,yy+xypad,pulse_start_bin] = \
-            np.multiply(
-                math.exp(-np.square( (x[xx]-input_center[0]) )/input_width**2 ),
-                math.exp(-np.square((y[yy]-input_center[1]))/input_width**2))
-
-fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-X = np.arange(FoV_n_bins)
-Y = np.arange(FoV_n_bins)
-X,Y = np.meshgrid(X,Y)
-surf = ax.plot_surface(X, Y, \
-                       b_input[xypad:xypad+FoV_n_bins,xypad:xypad+FoV_n_bins,9], 
-                       linewidth=0, antialiased=False)
-plt.show()
-
-
-
-
-"""
-Test parameters
-"""
-# load test mask
-#mask = np.genfromtxt('C:/Users/Trial/Documents/MATLAB/Diffuse_imaging_AL/test_masks/tri.txt')
-mask = np.genfromtxt('test_masks/tri.txt')
-mask = np.divide(mask,255)
-
-mask = np.pad(mask,(xypad,xypad),'constant',constant_values=1)
-
-
-# function profiling
-ts = time.time()
-test, test_m = forward_model(b_input,mask)
-#test = point_spread_function(2.50)
-tf = time.time()
-print(tf-ts)
-
-plt.subplot(1, 3, 1)
-plt.imshow(mask,interpolation='none') # FRANCESCO: Visualise Mask
-plt.title("Hidden Object")
-plt.subplot(1, 3, 2)
-plt.imshow(np.sum(test_m,2),interpolation='none') # FRANCESCO: Visualise Field in the Middle
-plt.title("Middle Surface")
-plt.subplot(1, 3, 3)
-plt.imshow(np.sum(test,2),interpolation='none')
-plt.title("End Surface")
-plt.show()
+# Time-Integrated Visualization 
+    nim=3
+    plt.subplot(1, nim, 1)
+    plt.imshow(mask,interpolation='none')
+    plt.title("Hidden Object")
+    plt.subplot(1, nim, 2)
+    plt.imshow(np.sum(test_m,2),interpolation='none')
+    plt.title("Middle Surface")
+    plt.subplot(1, nim, 3)
+    plt.imshow(np.sum(test,2),interpolation='none')
+    plt.title("End Surface")
+    plt.show()
