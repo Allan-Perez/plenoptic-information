@@ -8,6 +8,7 @@ Modified on Tue Jul 6 13:30 2021
 The modification consists of a refactoring into OOP for easy multiparam simulations, and
 avoid having global variables or having to pass params around functions.
 """
+import numpy as np, matplotlib.pyplot as plt
 class DiffusionSim():
     """Diffusion simulator. Takes in the needed physical and grid parameters,
        and computes the diffusion approx according the point spread function (PSF) found
@@ -125,7 +126,8 @@ class BeamGenerator():
         self.paddedGridDims = [self.xyPadding,self.xyPadding,self.tBinsN]
 
     # Compute the input beam shape with meshgrid
-    def intensity_distribution(self, inputCenter, inputWidth, pulseStartBin, visual=False):
+    def intensity_distribution(self, inputCenter, inputWidth,
+                               pulseStartBin, visual=False, returnUnpadded=False):
         beamInput=np.zeros(self.paddedGridDims)
         dist = self.dists["gaussian"]
 
@@ -137,19 +139,25 @@ class BeamGenerator():
         beamInput[xyIni:xyEnd,xyIni:xyEnd,pulseStartBin] = intensityShape
 
         if visual:
-            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-            surf = ax.plot_surface(X_,Y_,intensityShape, linewidth=0, antialiased=False)
-            ax.set_xlabel("X (cm)")
-            ax.set_ylabel("Y (cm)")
-            ax.set_zlabel("Beam Intensity")
-            plt.show()
+            self.visualize(intensityShape)
+        if returnUnpadded:
+            return (beamInput,intensityShape)
 
         return beamInput
+    def visualize(self, beam):
+        X_, Y_ = np.meshgrid(self.xCoordSpace,self.yCoordSpace)
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        surf = ax.plot_surface(X_,Y_,beam, linewidth=0, antialiased=False)
+        ax.set_xlabel("X (cm)")
+        ax.set_ylabel("Y (cm)")
+        ax.set_zlabel("Beam Intensity")
+        plt.show()
+
 """
 Initial parameters
 """
 if __name__=="__main__":
-    import numpy as np, matplotlib.pyplot as plt, time
+    import time
     n = 1.44                   # refractive index of diffuse medium
     xypadding = 64 # Pixel count after 0 padding for the FFTs - avoids wrapping
     params={
