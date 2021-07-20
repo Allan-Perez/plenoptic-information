@@ -42,31 +42,81 @@ def generate_parameters():
 
 def get_nearest_freq_el(nu_f, frequencies):
     # DFT gives bins (sampling), so we need to find the nearest bin
-    return np.argmin(np.abs(frequencies-nu_f))
+    print(f"Nu_f {nu_f} freq max {np.max(frequencies)}")
+    #plt.figure()
+    #plt.plot(frequencies[frequencies>0], 'o')
+    #plt.plot(0,nu_f, 'ro')
+    #plt.show()
+    return np.argmin(np.abs(np.abs(frequencies)-nu_f))
 
 def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pLen2):
     nIterations = int(diffSim.FoVNumBins/objWidth)
     mask = iniMask.copy()
     amplitudes=[]
     phases=[]
+    cont=True
+    # Perhaps fft is being done not in t axis
     for i in range(nIterations):
         print(f"Iteration {i}/{nIterations}")
         outInterface, middleInterface = diffSim.forward_model(beam,mask,pLen1,pLen2)
-        mask = np.roll(mask,1)
-        ftAmplitudeMidPixel = np.fft.fft(outInterface[16,16])
-        ftFreq = np.fft.fftfreq(len(outInterface[16,16]), nu_f)
 
+        print(f"Out interface shape {outInterface.shape}")
+        mask = np.roll(mask,3)
+        #ftAmplitudeMidPixel = np.fft.fftn(outInterface, axes=[-1])
+        ftAmplitudeMidPixel = np.fft.fft(outInterface[16,16])
+
+        ftAmplitudeMidPixel = np.divide(ftAmplitudeMidPixel,
+                                        np.amax(ftAmplitudeMidPixel))   # normalise
+        print(f"Out interface fft shape {ftAmplitudeMidPixel .shape}")
+        ftFreq = np.fft.fftfreq(outInterface.shape[-1], diffSim.timeRes)
+        print(f"Freq fft shape {ftFreq.shape}")
+        ftFreq = np.fft.fftshift(ftFreq)
+        ftAmplitudeMidPixel = np.fft.fftshift(ftAmplitudeMidPixel)
         nearestFreq = get_nearest_freq_el(nu_f, ftFreq)
+        print(f"Nearest freq {nearestFreq}")
+
+
+        if False: #cont!='n':
+            plt.figure()
+            plt.subplot(2,2, 1)
+            plt.imshow(np.sum(middleInterface,2),interpolation='none')
+            plt.title("Middle Surface")
+            plt.subplot(2,2, 2)
+            plt.imshow(np.sum(outInterface,2))
+            plt.title("Measurement surface")
+            plt.subplot(2,2,3)
+            plt.plot(ftFreq,np.abs(ftAmplitudeMidPixel))
+            plt.plot(nearestFreq, np.abs(ftAmplitudeMidPixel)[nearestFreq], 'ro')
+            plt.subplot(2,2,4)
+            plt.plot(outInterface[15,15])
+            plt.show()
+            cont = input("Cont?")
+        if cont!='n':
+            X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
+
+            times_max = np.argmax(np.abs(outInterface), axis=-1)
+
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(X_,Y_, times_max, linewidth=0)
+            ax.set_xlabel("X (cm)")
+            ax.set_ylabel("Y (cm)")
+            ax.set_zlabel("Time of first max (bins)")
+            plt.show()
+
+        #amplitudes.append(np.abs(ftAmplitudeMidPixel[15,:,nearestFreq]))
+        #phases.append(np.angle(ftAmplitudeMidPixel[15,:,nearestFreq]))
         amplitudes.append(np.abs(ftAmplitudeMidPixel[nearestFreq]))
         phases.append(np.angle(ftAmplitudeMidPixel[nearestFreq]))
-    return (np.array(amplitudes),np.array(phases))
+    amplitudes, phases = (np.array(amplitudes),np.array(phases))
+    print(f"Shapes of time-bins amps {amplitudes.shape}")
+    return amplitudes, phases
 
 if __name__=='__main__':
     # Create parameters
     params = generate_parameters()
     centerPixel = (params["fieldOfViewBins"]//2, params["fieldOfViewBins"]//2)
     ## In the paper they use a detector exactly half-way between sources.
-    modulationFrequency = 0.1e9 #Hz - Can it be arbitrary??
+    modulationFrequency = 0.2e9 #Hz - Can it be arbitrary??
     timeShift = 1/(2*modulationFrequency)
 
     # Simulators
@@ -93,8 +143,8 @@ if __name__=='__main__':
     mask = np.genfromtxt('test_masks/tri.txt')
     mask = np.divide(mask,255)
     mask = np.ones(mask.shape)
-    objWidth=2
-    mask[15:17,0:2] = np.zeros([objWidth,objWidth])
+    objWidth=3
+    mask[10:20,0:3] = np.zeros([10,objWidth])
     mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
 
     # Perform iterative simulation
@@ -104,12 +154,32 @@ if __name__=='__main__':
                                                      beamInput,mask,
                                                      modulationFrequency,
                                                      objWidth,pl1,pl2)
-    plt.subplot(1, 2, 1)
+    print(phases.shape)
+
+    """
+    X_, Y_ = np.meshgrid(np.arange(phases.shape[0]),
+                         np.arange(phases.shape[1]))
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+    surf = ax.plot_surface(X_,Y_, phases.transpose(), linewidth=0)
+    ax.set_ylabel("X (cm) [Cross-section y=16 bin]")
+    ax.set_xlabel("Scatterer Position (bins, from far left to far right)")
+    ax.set_zlabel("Phase of nu_f at bucket-detector in coord [x,y=16]")
+
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+    surf = ax.plot_surface(X_,Y_, amplitudes.transpose(), linewidth=0)
+    ax.set_ylabel("X (cm) [Cross-section y=16 bin]")
+    ax.set_xlabel("Scatterer Position (bins, from far left to far right)")
+    ax.set_zlabel("Amplitude of nu_f at bucket-detector in coord [x,y=16]")
+    """
+    plt.subplot(1,2,1)
     plt.plot(amplitudes)
-    plt.title("Position vs Ampltidue (from far left to far right)")
+    plt.xlabel('Scatterer position in bins(left to right)')
+    plt.ylabel('Amplitude of nu_f')
     plt.subplot(1,2,2)
     plt.plot(phases)
-    plt.title("Position vs Phase (from far left to far right)")
+    plt.xlabel('Scatterer position in bins(left to right)')
+    plt.ylabel('Phase of nu_f')
+
     plt.show()
 
     # Perform simulation
