@@ -78,7 +78,7 @@ class DiffusionSim():
         Phi = np.real((np.fft.ifftn(
             np.multiply(np.fft.fftn(Phi_in),np.fft.fftn(PSF))
         )))
-        Phi = np.divide(Phi,np.amax(Phi))   # normalise
+        #Phi = np.divide(Phi,np.amax(Phi))   # normalise
 
         return np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
 
@@ -99,7 +99,7 @@ class DiffusionSim():
         if propagationLen1 == propagationLen2 :
             Phi = self.convolution(Phi,PSF1)
         else:
-            PSF2 = self.PSF(propagation_length2)
+            PSF2 = self.PSF(propagationLen2 )
             Phi = self.convolution(Phi,PSF2)
 
         # Crop data only if padded with 0s
@@ -107,6 +107,7 @@ class DiffusionSim():
             Phi = Phi[
                 self.padSize-1:self.padSize+self.FoVNumBins-1,
                 self.padSize-1:self.padSize+self.FoVNumBins-1,:]
+            print(f"Cropping data: from {self.padSize} to {self.padSize+self.FoVNumBins}")
 
         return Phi, Phi_m # FRANCESCO: Extra output - field in the middle
 
@@ -135,8 +136,9 @@ class BeamGenerator():
         intensityShape = \
             dist(X_,inputCenter[0], inputWidth)*\
             dist(Y_,inputCenter[1], inputWidth)
-        xyIni, xyEnd = (self.padSize,self.FoVNumBins+self.padSize)
+        xyIni, xyEnd = (self.padSize+1,self.FoVNumBins+self.padSize+1)
         beamInput[xyIni:xyEnd,xyIni:xyEnd,pulseStartBin] = intensityShape
+        print(f"Padded beams max: {np.unravel_index(beamInput.argmax(), beamInput.shape)}")
 
         if visual:
             self.visualize(intensityShape)

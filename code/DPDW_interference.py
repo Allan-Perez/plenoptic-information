@@ -19,7 +19,7 @@ import numpy as np, matplotlib.pyplot as plt
 
 def generate_parameters():
     n = 1.44                   # refractive index of diffuse medium
-    xypadding = 64 # Pixel count after 0 padding for the FFTs - avoids wrapping
+    xypadding = 65 # Pixel count after 0 padding for the FFTs - avoids wrapping
     params={
         "c" : 3e10/n,             # phase velocity in medium (cm/s)
         "propagationLen1" : 2.5,  # thickness of first diffuse medium (cm)
@@ -29,7 +29,7 @@ def generate_parameters():
         "FoV_length" : 4.4,           # size of the camera field of view (cm)
         "timeResolution" : 55e-12,    # camera temporal bin width (ps)
         "timeNumBins" : 251,          # number of temporal bins
-        "fieldOfViewBins" : 32,       # number of camera pixels
+        "fieldOfViewBins" : 33,       # number of camera pixels
     }
     params["D"] = (3*(params["mu_a"]+params["mu_s"]))**(-1) # "D" as defined in paper
 
@@ -37,43 +37,68 @@ def generate_parameters():
     _ = np.linspace(-params["FoV_length"]/2,params["FoV_length"]/2,params["fieldOfViewBins"])
     params["xCoordSpace"] = _
     params["yCoordSpace"] = _
-    params["padSize"]= int((xypadding - params["fieldOfViewBins"])/2)
+    params["padSize"]= (xypadding - params["fieldOfViewBins"])//2
     return params
 
 def get_nearest_freq_el(nu_f, frequencies):
     # DFT gives bins (sampling), so we need to find the nearest bin
-    print(f"Nu_f {nu_f} freq max {np.max(frequencies)}")
+    #print(f"Nu_f {nu_f:.3E} freq max {np.max(frequencies):.3E} freq min {np.min(frequencies):.3E}")
     #plt.figure()
     #plt.plot(frequencies[frequencies>0], 'o')
     #plt.plot(0,nu_f, 'ro')
     #plt.show()
-    return np.argmin(np.abs(np.abs(frequencies)-nu_f))
+    return np.argmin(np.abs(frequencies-nu_f))
 
 def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pLen2):
-    nIterations = int(diffSim.FoVNumBins/objWidth)
-    mask = iniMask.copy()
+    nIterations = diffSim.FoVNumBins - objWidth
+    mask = iniMask#.copy()
     amplitudes=[]
     phases=[]
     cont=True
+    detector = (16,16)
     # Perhaps fft is being done not in t axis
     for i in range(nIterations):
         print(f"Iteration {i}/{nIterations}")
         outInterface, middleInterface = diffSim.forward_model(beam,mask,pLen1,pLen2)
 
         print(f"Out interface shape {outInterface.shape}")
-        mask = np.roll(mask,3)
+        mask = np.roll(mask,1)
         #ftAmplitudeMidPixel = np.fft.fftn(outInterface, axes=[-1])
-        ftAmplitudeMidPixel = np.fft.fft(outInterface[16,16])
+        signal = np.pad(outInterface[detector], 10)
+        ftAmplitudeMidPixel = np.fft.fft(signal)
 
-        ftAmplitudeMidPixel = np.divide(ftAmplitudeMidPixel,
-                                        np.amax(ftAmplitudeMidPixel))   # normalise
+        #ftAmplitudeMidPixel = np.divide(ftAmplitudeMidPixel,
+        #                                np.amax(ftAmplitudeMidPixel))   # normalise
         print(f"Out interface fft shape {ftAmplitudeMidPixel .shape}")
-        ftFreq = np.fft.fftfreq(outInterface.shape[-1], diffSim.timeRes)
+        ftFreq = np.fft.fftfreq(signal.shape[-1], diffSim.timeRes)
         print(f"Freq fft shape {ftFreq.shape}")
         ftFreq = np.fft.fftshift(ftFreq)
         ftAmplitudeMidPixel = np.fft.fftshift(ftAmplitudeMidPixel)
         nearestFreq = get_nearest_freq_el(nu_f, ftFreq)
         print(f"Nearest freq {nearestFreq}")
+
+        if i%8==0:
+            print(f"Max out interference index: {np.argmax(np.sum(outInterface[16,:,],1))}")
+            plt.figure()
+            plt.subplot(2,2, 1)
+            plt.title(f"Detected dispersion curve (Iter {i}/{nIterations}).")
+            plt.plot(outInterface[detector])
+            plt.subplot(2,2,2)
+            plt.imshow(np.sum(middleInterface,2),interpolation='none')
+            plt.subplot(2,2,3)
+            plt.plot(np.sum(outInterface[16,:,],1))
+            plt.show()
+            plt.figure(figsize=(12,6))
+            plt.title(f"Frequency spectrum [with detector position {detector}]")
+            plt.scatter(ftFreq, np.abs(ftAmplitudeMidPixel), color='b', alpha=0.7)
+            plt.scatter(ftFreq[nearestFreq], np.abs(ftAmplitudeMidPixel[nearestFreq]), color='r',
+                        label=f'Closest Modulation Frequency [{ftFreq[nearestFreq]}]'
+                        )
+            plt.scatter(nu_f, np.abs(ftAmplitudeMidPixel[nearestFreq]), color='g')
+            plt.legend()
+            plt.grid(True)
+            plt.xlim(-1e9, 1e9)
+            plt.show()
 
 
         if False: #cont!='n':
@@ -91,7 +116,7 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
             plt.plot(outInterface[15,15])
             plt.show()
             cont = input("Cont?")
-        if cont!='n':
+        if False and cont!='n':
             X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
 
             times_max = np.argmax(np.abs(outInterface), axis=-1)
@@ -101,6 +126,11 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
             ax.set_xlabel("X (cm)")
             ax.set_ylabel("Y (cm)")
             ax.set_zlabel("Time of first max (bins)")
+            plt.show()
+
+            plt.figure()
+            plt.imshow(np.sum(middleInterface,2),interpolation='none')
+            plt.title('Mask position')
             plt.show()
 
         #amplitudes.append(np.abs(ftAmplitudeMidPixel[15,:,nearestFreq]))
@@ -116,7 +146,9 @@ if __name__=='__main__':
     params = generate_parameters()
     centerPixel = (params["fieldOfViewBins"]//2, params["fieldOfViewBins"]//2)
     ## In the paper they use a detector exactly half-way between sources.
-    modulationFrequency = 0.2e9 #Hz - Can it be arbitrary??
+    #modulationFrequency = 0.2e9 #Hz - Can it be arbitrary??
+    #modulationFrequency = 8e7 # First freq paper
+    modulationFrequency = 6.5e8 # Second freq paper
     timeShift = 1/(2*modulationFrequency)
 
     # Simulators
@@ -129,22 +161,24 @@ if __name__=='__main__':
     input_center = [0,0]        # beam center position (cm)
     input_width = 0.5           # beam width (cm, s.d.)
     pulse_start_bin = 9         # starting bin for the input pulse
-    bin_delay = (1/params["timeResolution"])*timeShift
-    print(f"The bin delay should be close to an int: {bin_delay}")
-    bin_delay = np.int(bin_delay)
+    bin_delay = np.int((1/params["timeResolution"])*timeShift)
     beamInput = bGen.intensity_distribution([-1.5,0],
                                                  input_width, 9)
+    print(f"Position of max: {np.unravel_index(np.argmax(beamInput), beamInput.shape)}")
+    print(f"Beam padding: {beamInput.shape}")
     beamInput2 = bGen.intensity_distribution([1.5,0],
                                                  input_width, 9+bin_delay)
+    print(f"Position of max: {np.unravel_index(np.argmax(beamInput2), beamInput2.shape)}")
+    print(f"Beam padding: {beamInput2.shape}")
     beamInput += beamInput2 # Beams are 3cm apart from each other.
-    #bGen.visualize(_1+_2)
+    #bGen.visualize(beamInput2)
 
     # Mask loading - absorber
     mask = np.genfromtxt('test_masks/tri.txt')
     mask = np.divide(mask,255)
-    mask = np.ones(mask.shape)
-    objWidth=3
-    mask[10:20,0:3] = np.zeros([10,objWidth])
+    mask = np.ones([diffSim.FoVNumBins, diffSim.FoVNumBins])#mask.shape)
+    objWidth=4
+    mask[:,0:4] = np.zeros([33,objWidth])
     mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
 
     # Perform iterative simulation
