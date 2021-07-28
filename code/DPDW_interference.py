@@ -64,18 +64,38 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
         print(f"Out interface shape {outInterface.shape}")
         mask = np.roll(mask,1)
         signal = np.pad(outInterface, ((0,),(0,),(200,)))
-        ftAmplitudeMidPixel = np.fft.fftn(signal, axes=[-1])[detector]
+        ftAmplitudes = np.fft.fftn(signal, axes=[-1])
         #ftAmplitudeMidPixel = np.fft.fft(signal)
 
         #ftAmplitudeMidPixel = np.divide(ftAmplitudeMidPixel,
         #                                np.amax(ftAmplitudeMidPixel))   # normalise
-        ftFreq = np.fft.fftfreq(ftAmplitudeMidPixel.shape[-1], diffSim.timeRes)
+        ftFreq = np.fft.fftfreq(ftAmplitudes.shape[-1], diffSim.timeRes)
         ftFreq = np.fft.fftshift(ftFreq)
-        ftAmplitudeMidPixel = np.fft.fftshift(ftAmplitudeMidPixel)
+        ftAmplitudes = np.fft.fftshift(ftAmplitudes, axes=[-1])
         nearestFreq = get_nearest_freq_el(nu_f, ftFreq)
+        ftAmplitudes = ftAmplitudes[:,:,nearestFreq]
+        ftPhases = np.angle(ftAmplitudes)
+        ftAmplitudes = np.abs(ftAmplitudes)
         print(f"Nearest freq {nearestFreq}")
 
         if i%10==0:
+            X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(X_,Y_, ftAmplitudes, linewidth=0)
+            ax.set_xlabel("X (cm)")
+            ax.set_ylabel("Y (cm)")
+            ax.set_zlabel("Amplitude of each pixel")
+
+            X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
+            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+            surf = ax.plot_surface(X_,Y_, ftPhases, linewidth=0)
+            ax.set_xlabel("X (cm)")
+            ax.set_ylabel("Y (cm)")
+            ax.set_zlabel("Phase of each pixel")
+            plt.figure()
+            plt.imshow(np.sum(middleInterface,-1),interpolation='none')
+            plt.show()
+        if False and i%10==0:
             print(f"Max out interference index: {np.argmax(np.sum(outInterface[16,:,],1))}")
             plt.figure()
             plt.subplot(2,2, 1)
@@ -86,6 +106,7 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
             plt.subplot(2,2,3)
             plt.plot(np.sum(outInterface[16,:,],1))
             plt.show()
+
             plt.figure(figsize=(12,6))
             plt.title(f"Frequency spectrum [with detector position {detector}]")
             plt.scatter(ftFreq, np.abs(ftAmplitudeMidPixel), color='b', alpha=0.7)
