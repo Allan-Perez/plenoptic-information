@@ -63,21 +63,19 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
 
         print(f"Out interface shape {outInterface.shape}")
         mask = np.roll(mask,1)
-        #ftAmplitudeMidPixel = np.fft.fftn(outInterface, axes=[-1])
-        signal = np.pad(outInterface[detector], 10)
-        ftAmplitudeMidPixel = np.fft.fft(signal)
+        signal = np.pad(outInterface, ((0,),(0,),(200,)))
+        ftAmplitudeMidPixel = np.fft.fftn(signal, axes=[-1])[detector]
+        #ftAmplitudeMidPixel = np.fft.fft(signal)
 
         #ftAmplitudeMidPixel = np.divide(ftAmplitudeMidPixel,
         #                                np.amax(ftAmplitudeMidPixel))   # normalise
-        print(f"Out interface fft shape {ftAmplitudeMidPixel .shape}")
-        ftFreq = np.fft.fftfreq(signal.shape[-1], diffSim.timeRes)
-        print(f"Freq fft shape {ftFreq.shape}")
+        ftFreq = np.fft.fftfreq(ftAmplitudeMidPixel.shape[-1], diffSim.timeRes)
         ftFreq = np.fft.fftshift(ftFreq)
         ftAmplitudeMidPixel = np.fft.fftshift(ftAmplitudeMidPixel)
         nearestFreq = get_nearest_freq_el(nu_f, ftFreq)
         print(f"Nearest freq {nearestFreq}")
 
-        if i%8==0:
+        if i%10==0:
             print(f"Max out interference index: {np.argmax(np.sum(outInterface[16,:,],1))}")
             plt.figure()
             plt.subplot(2,2, 1)
@@ -92,7 +90,8 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
             plt.title(f"Frequency spectrum [with detector position {detector}]")
             plt.scatter(ftFreq, np.abs(ftAmplitudeMidPixel), color='b', alpha=0.7)
             plt.scatter(ftFreq[nearestFreq], np.abs(ftAmplitudeMidPixel[nearestFreq]), color='r',
-                        label=f'Closest Modulation Frequency [{ftFreq[nearestFreq]}]'
+                        label=f'Closest Modulation Frequency [{ftFreq[nearestFreq]:.3E}],\
+                        diff {(ftFreq[nearestFreq]-nu_f):.3E}'
                         )
             plt.scatter(nu_f, np.abs(ftAmplitudeMidPixel[nearestFreq]), color='g')
             plt.legend()
@@ -144,11 +143,10 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
 if __name__=='__main__':
     # Create parameters
     params = generate_parameters()
-    centerPixel = (params["fieldOfViewBins"]//2, params["fieldOfViewBins"]//2)
     ## In the paper they use a detector exactly half-way between sources.
-    #modulationFrequency = 0.2e9 #Hz - Can it be arbitrary??
+    modulationFrequency = 0.2e9 #Hz - Can it be arbitrary??
     #modulationFrequency = 8e7 # First freq paper
-    modulationFrequency = 6.5e8 # Second freq paper
+    #modulationFrequency = 6.5e8 # Second freq paper
     timeShift = 1/(2*modulationFrequency)
 
     # Simulators
@@ -160,8 +158,7 @@ if __name__=='__main__':
     # So in any case, the detector should be at [0,0]
     input_center = [0,0]        # beam center position (cm)
     input_width = 0.5           # beam width (cm, s.d.)
-    pulse_start_bin = 9         # starting bin for the input pulse
-    bin_delay = np.int((1/params["timeResolution"])*timeShift)
+    bin_delay =  np.int((1/params["timeResolution"])*timeShift)
     beamInput = bGen.intensity_distribution([-1.5,0],
                                                  input_width, 9)
     print(f"Position of max: {np.unravel_index(np.argmax(beamInput), beamInput.shape)}")
@@ -178,7 +175,7 @@ if __name__=='__main__':
     mask = np.divide(mask,255)
     mask = np.ones([diffSim.FoVNumBins, diffSim.FoVNumBins])#mask.shape)
     objWidth=4
-    mask[:,0:4] = np.zeros([33,objWidth])
+    mask[:,:objWidth] = np.zeros([33,objWidth])
     mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
 
     # Perform iterative simulation
@@ -216,10 +213,6 @@ if __name__=='__main__':
 
     plt.show()
 
-    # Perform simulation
-    ##outInterface, middleInterface = diffSim.forward_model(beamInput,mask,pl1,pl2)
-    ##print(outInterface.shape, outInterface[centerPixel].shape, centerPixel)
-    ##print(outInterface[16,:,:].shape)
 
     """
     X_, Y_ = np.meshgrid(np.arange(32),np.arange(251))
