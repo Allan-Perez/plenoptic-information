@@ -20,21 +20,34 @@ import numpy as np, matplotlib.pyplot as plt, os
 def bin_shift(nu_f, timeResolution):
     timeShift = 1/(2*nu_f)
     return np.int((1/timeResolution)*timeShift)
-
+def combine_signal(s1, s2, nu_f, timeRes):
+    """args:
+      s1: First signal (time series of amplitude of else). Can be ndarray, where the last
+        axis is the time dimension.
+      s2: Second signal, to be time-shifted by t=1/2*nu_f. As above.
+      nu_f: modulation frequency.
+      timeRes: Time resolution paramter (in s), as in parameters
+    returns:
+      Combination of signal 1 and signal 2, ready for FFT.
+    """
+    binShift = bin_shift(nu_f, timeRes)
+    s= s1+np.roll(s2, binShift)
+    padding = (len(s.shape)-1)*((0,0),) + ((0,200),)
+    sPadded = np.pad(s, padding) #we want to generalise this to add the padding to the
+    # last  axis 
+    return sPadded
 
 def process_measurement(outInterface, nu_f, timeRes):
     # Compute Linquidst suggestion of 2D pattern of detectors by combining two conjugate
     # cells' signals by delaying the conjugated cell's signal. To start with it, we use
     # only one conjugate pair: equivalent to the original experiment of 2 sources.
-    binShift = bin_shift(nu_f, timeRes)
-    detector1 = outInterface[11,16,:]
-    detector2 = np.roll(outInterface[21,16,:], binShift)
-    signal = detector1+detector2
-    signalPadded = np.pad(signal, 200)
+    signal1 = outInterface[16,5,:]
+    signal2 = outInterface[16,27,:]
+    signal = combine_signal(signal1,signal2,nu_f,timeRes) #detector1+detector2
     #plt.figure()
     #plt.plot(signalPadded)
     #plt.show()
-    return signalPadded
+    return signal
 
 def generate_parameters():
     n = 1.44                   # refractive index of diffuse medium
@@ -61,17 +74,12 @@ def generate_parameters():
 
 def get_nearest_freq_el(nu_f, frequencies):
     # DFT gives bins (sampling), so we need to find the nearest bin
-    #print(f"Nu_f {nu_f:.3E} freq max {np.max(frequencies):.3E} freq min {np.min(frequencies):.3E}")
-    #plt.figure()
-    #plt.plot(frequencies[frequencies>0], 'o')
-    #plt.plot(0,nu_f, 'ro')
-    #plt.show()
     return np.argmin(np.abs(frequencies-nu_f))
 
 def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pLen2,
                                 sourceSeparation):
     nIterations = diffSim.FoVNumBins - objWidth
-    mask = iniMask#.copy()
+    mask = iniMask
     amplitudes=[]
     phases=[]
     cont=True
@@ -104,27 +112,13 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
         ftAmplitudes = np.abs(ftAmplitudes)
         print(f"Nearest freq {nearestFreq}")
 
-        if False and i%9==0:
-            X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
-            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-            surf = ax.plot_surface(X_,Y_, ftAmplitudes, linewidth=0)
-            ax.set_xlabel("X (cm)")
-            ax.set_ylabel("Y (cm)")
-            ax.set_zlabel("Amplitude of each pixel")
-            plt.title(f"Amplitude of nu_f in Freq Space per pixel [nu_f={nu_f:.3E}, \
-                     iteration={i+1}/{nIterations}]")
-            #plt.savefig(directory+f"amplitude_{i+1}.png")
-
-            X_, Y_ = np.meshgrid(diffSim.xCoordSpace, diffSim.yCoordSpace)
-            fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
-            surf = ax.plot_surface(X_,Y_, ftPhases, linewidth=0)
-            ax.set_xlabel("X (cm)")
-            ax.set_ylabel("Y (cm)")
-            ax.set_zlabel("Phase of each pixel")
-            plt.title(f"Phase of nu_f in Freq Space per pixel [nu_f={nu_f:.3E},\
-                     iteration={i+1}/{nIterations}]")
-            #plt.savefig(directory+f"phase_{i+1}.png")
-
+        if  i%9==0:
+            oi = np.sum(outInterface,-1)
+            oi[16,5]=1
+            oi[16,27]=1
+            mi = np.sum(middleInterface,-1)
+            plt.figure()
+            plt.imshow(oi, interpolation='none')
             plt.figure()
             plt.imshow(np.sum(middleInterface,-1),interpolation='none')
             plt.show()
