@@ -68,7 +68,7 @@ class DiffusionSim():
         # PSF with padding
         xyIni, xyEnd = (self.padSize, self.padSize+self.FoVNumBins)
         PSF[xyIni:xyEnd,xyIni:xyEnd,:]= PSFaux
-
+        print(f'Number of time bins: {self.tBinsN}')
         return PSF
 
     def convolution(self, Phi_in, PSF):
@@ -78,9 +78,30 @@ class DiffusionSim():
         Phi = np.real((np.fft.ifftn(
             np.multiply(np.fft.fftn(Phi_in),np.fft.fftn(PSF))
         )))
-        #Phi = np.divide(Phi,np.amax(Phi))   # normalise
+        # Normalise only in space
+        #Phi = np.fft.fftshift(np.divide(Phi,np.amax(Phi)), axis=(0,1))
+        Phi = np.fft.fftshift(np.divide(Phi,np.amax(Phi)))
+        #Phi = np.divide(Phi-Phi.mean(),Phi.std())#np.amax(Phi))   # normalise
+        #Phi = np.divide(Phi,Phi.max())#np.amax(Phi))   # normalise
+        # fftshift causes bugs in the time of arrival of signals.
+        """ --- DEBUGING
+        print(f'Stats of computed phi: {Phi.mean(), Phi.std()}')
+        print(f'Stats of in phi: {Phi_in.mean(), Phi_in.std()}')
+        print(f'Total value of phi: {Phi.flatten().sum()}')
 
-        return np.fft.fftshift(Phi) # FRANCESCO: Fixing frequency offset issue
+        plt.figure()
+        plt.plot(Phi_in[15+16,:].T)
+        plt.title("Computed Phi, looking for bug")
+        plt.figure()
+        plt.plot(PSF[15+16,:].T)
+        plt.title("Computed PSF, looking for bug")
+        plt.figure()
+        plt.plot(Phi[15+16,:].T)
+        plt.title("Convoluted, looking for bug")
+        plt.show()
+        """
+
+        return Phi # FRANCESCO: Fixing frequency offset issue
 
     def forward_model(self, beamInput, mask, propagationLen1, propagationLen2):
         """Full forward model including propagation through
@@ -97,6 +118,7 @@ class DiffusionSim():
         # Store middle cross-section
         Phi_m = Phi.copy()
         if propagationLen1 == propagationLen2 :
+            print("Plotting out surface")
             Phi = self.convolution(Phi,PSF1)
         else:
             PSF2 = self.PSF(propagationLen2 )
