@@ -18,8 +18,8 @@ import numpy as np, matplotlib.pyplot as plt, os
 from utils import generate_parameters
 from sklearn.feature_selection import mutual_info_regression
 
-def grad_visualize(grid3D, i):
-    '''args: 
+def grad_visualize(grid3D, i, path):
+    '''args:
         grid3D: NxNx2 array, where the last axis is time (2 adjacent time slices).
     returns: None
     '''
@@ -36,7 +36,7 @@ def grad_visualize(grid3D, i):
     plt.xlabel('X-coordinates (bins)')
     plt.ylabel('Y-coordinates (bins)')
     plt.grid()
-    plt.savefig(f'img/gradient/intensities/{i}.png')
+    plt.savefig(path+f'/intensities/{i}.png')
 
     d= np.linspace(0,33,33)
     X,Y = np.meshgrid(d,d)
@@ -48,41 +48,49 @@ def grad_visualize(grid3D, i):
     plt.title("Gradient of measurement (colors represent magnitude of time gradient)")
     plt.grid()
 
-    plt.savefig(f'img/gradient/vectorfield/{i}.png')
+    plt.savefig(path+f'/vectorfield/{i}.png')
     #plt.show()
 
 
 if __name__=='__main__':
+    ts= [10e-12, 25e-12, 55e-12]
     # Create parameters
-    params = generate_parameters(timeResolution=10e-12)
+    for t in ts:
+        print(t)
+        path = f"img/gradient/xytgrad_t{int(t*1e12)}"
+        params = generate_parameters(timeResolution=t)
 
-    # Simulators
-    diffSim = DiffusionSim(**params)
-    bGen = BeamGenerator(**params)
+        # Simulators
+        diffSim = DiffusionSim(**params)
+        bGen = BeamGenerator(**params)
 
-    # Beam shape
-    # Beam's note: It is supposed to be equidistant from the two sources. 
-    # So in any case, the detector should be at [0,0]
-    input_center = [0,0]        # beam center position (cm)
-    input_width = 0.5           # beam width (cm, s.d.)
-    beamInput = bGen.intensity_distribution(input_center,
-                                                 input_width, 9)
-    #bGen.visualize(beamInput2)
+        # Beam shape
+        # Beam's note: It is supposed to be equidistant from the two sources. 
+        # So in any case, the detector should be at [0,0]
+        input_center = [0,0]        # beam center position (cm)
+        input_width = 0.5           # beam width (cm, s.d.)
+        beamInput = bGen.intensity_distribution(input_center,
+                                                     input_width, 9)
+        #bGen.visualize(beamInput2)
 
-    # Mask loading - absorber
-    maskp = np.genfromtxt('test_masks/x.txt')
-    maskp = np.divide(maskp,255)
-    mask = np.ones([diffSim.FoVNumBins, diffSim.FoVNumBins])#mask.shape)
-    mask[1:,1:] = maskp
-    mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
+        # Mask loading - absorber
+        maskp = np.genfromtxt('test_masks/circle.txt')
+        maskp = np.divide(maskp,255)
+        mask = np.ones([diffSim.FoVNumBins, diffSim.FoVNumBins])#mask.shape)
+        mask[1:,1:] = maskp
+        mask = np.pad(mask,(params["padSize"],)*2,'constant',constant_values=1)
 
-    # Perform simulation
-    pl1 = params["propagationLen1"]
-    pl2 = params["propagationLen2"]
-    outInterface, middleInterface = diffSim.forward_model(beamInput,mask,pl1,pl2)
+        # Perform simulation
+        pl1 = params["propagationLen1"]
+        pl2 = params["propagationLen2"]
+        outInterface, middleInterface = diffSim.forward_model(beamInput,mask,pl1,pl2)
 
-    l = outInterface.shape[-1]
-    if True:
-        for i in range(15,l):
-            grad_visualize(outInterface[:,:,i:i+2], i)
-            print(f'Iteration {i}/{l}')
+        #l = 70#outInterface.shape[-1] # 
+        l= int(3.3e-9 // t)
+        l = min(200,l)
+        #Don't make accross whole time cos it's too much data!
+        print(f"Starting simulation of time {t}")
+        if True:
+            for i in range(12,l):
+                grad_visualize(outInterface[:,:,i:i+2], i, path)
+                print(f'Iteration {i}/{l}')

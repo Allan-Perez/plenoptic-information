@@ -134,7 +134,11 @@ class DiffusionSim():
         return Phi, Phi_m # FRANCESCO: Extra output - field in the middle
 
 class BeamGenerator():
+    """
+    """
     def __init__(self, **kwargs):
+        """
+        """
         self.dists = {
             "gaussian": lambda x,mu,sig: np.exp(-np.square( (x-mu) /sig ) )
         }
@@ -151,6 +155,8 @@ class BeamGenerator():
     # Compute the input beam shape with meshgrid
     def intensity_distribution(self, inputCenter, inputWidth,
                                pulseStartBin, visual=False, returnUnpadded=False):
+        """
+        """
         beamInput=np.zeros(self.paddedGridDims)
         dist = self.dists["gaussian"]
 
@@ -169,6 +175,8 @@ class BeamGenerator():
 
         return beamInput
     def visualize(self, beam):
+        """
+        """
         X_, Y_ = np.meshgrid(self.xCoordSpace,self.yCoordSpace)
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
         surf = ax.plot_surface(X_,Y_,beam, linewidth=0, antialiased=False)

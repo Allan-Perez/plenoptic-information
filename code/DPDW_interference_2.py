@@ -46,9 +46,9 @@ def combine_signal(s1, s2, nu_f, timeRes):
 
 def process_measurement(outInterface, nu_f, timeRes):
     """args:
-        outInterface: 
+        outInterface:
         nu_f:
-        timeRes: 
+        timeRes:
     returns:
         Combined signals of vertical (VDet) and horizontal (HDet) detector pairs.
 
@@ -108,18 +108,6 @@ def get_nearest_freq_el(nu_f, frequencies):
     """
     # DFT gives bins (sampling), so we need to find the nearest bin
     return np.argmin(np.abs(frequencies-nu_f))
-
-def informationProcessing(X, Y):
-    """args:
-        X: Message sent. N symbols flat array.
-        Y: Message received. N symbolts flat array.
-    """
-
-    return
-
-def encode_message(signal):
-    return
-
 
 def signalToSymbol(X):
     """args:
@@ -227,7 +215,6 @@ def iterative_roll_measurements(diffSim, beam, iniMask, nu_f, objWidth, pLen1,pL
         messageSymbols = signalToSymbol(messageSignal)
         m = signalToSymbol(receivedSignal)
 
-        informationProcessing(messageSignal, receivedSignal)
 
 
 

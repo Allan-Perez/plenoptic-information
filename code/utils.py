@@ -74,7 +74,7 @@ def information_content(message):
     """
     message = check_message(message)
 
-    A_x, F_x = np.unique(message, return_counts=True) 
+    A_x, F_x = np.unique(message, return_counts=True)
     sizem = message.size
     P_x = [ fx/sizem for fx in F_x ]
     H = sum([px *np.log2(1/px) for px in P_x])
